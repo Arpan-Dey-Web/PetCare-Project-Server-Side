@@ -80,32 +80,57 @@ async function run() {
     // get my added pet api
     // GET /pets?email=user@example.com
 
-   app.get("/pets/:email", async (req, res) => {
-     try {
-       const {email} = req.params
-       console.log(email);
+    app.get("/pets/:email", async (req, res) => {
+      try {
+        const { email } = req.params;
+        console.log(email);
 
-       if (!email) {
-         return res
-           .status(400)
-           .json({ error: "Email query parameter is required." });
-       }
+        if (!email) {
+          return res
+            .status(400)
+            .json({ error: "Email query parameter is required." });
+        }
 
-       const pets = await petsCollection
-         .find({ owner: email }) // your stored user email field
-         .sort({ createdAt: -1 }) // newest pets first
-         .toArray();
+        const pets = await petsCollection
+          .find({ owner: email }) // your stored user email field
+          .sort({ createdAt: -1 }) // newest pets first
+          .toArray();
 
-       res.json(pets);
-     } catch (error) {
-       console.error("Error fetching pets:", error);
-       res.status(500).json({ error: "Internal server error." });
-     }
-   });
-
+        res.json(pets);
+      } catch (error) {
+        console.error("Error fetching pets:", error);
+        res.status(500).json({ error: "Internal server error." });
+      }
+    });
     
-    
-    
+    // mark pet as adopt api
+    // PATCH /pets/adopt/:id
+    app.patch("/pets/adopt/:id", async (req, res) => {
+      const petId = req.params.id;
+
+      try {
+        const result = await petsCollection.updateOne(
+          { _id: new ObjectId(petId) },
+          { $set: { adopted: true } }
+        );
+
+        if (result.modifiedCount > 0) {
+          res.send({ success: true, message: "Pet marked as adopted" });
+        } else {
+          res
+            .status(404)
+            .send({
+              success: false,
+              message: "Pet not found or already adopted",
+            });
+        }
+      } catch (error) {
+        console.error("Error marking pet as adopted:", error.message);
+        res
+          .status(500)
+          .send({ success: false, message: "Internal Server Error" });
+      }
+    });
 
     // await client.db("admin").command({ ping: 1 });
     // console.log(
