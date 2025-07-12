@@ -83,7 +83,7 @@ async function run() {
     app.get("/pets/:email", async (req, res) => {
       try {
         const { email } = req.params;
-        console.log(email);
+        // console.log(email);
 
         if (!email) {
           return res
@@ -102,7 +102,7 @@ async function run() {
         res.status(500).json({ error: "Internal server error." });
       }
     });
-    
+
     // mark pet as adopt api
     // PATCH /pets/adopt/:id
     app.patch("/pets/adopt/:id", async (req, res) => {
@@ -117,18 +117,36 @@ async function run() {
         if (result.modifiedCount > 0) {
           res.send({ success: true, message: "Pet marked as adopted" });
         } else {
-          res
-            .status(404)
-            .send({
-              success: false,
-              message: "Pet not found or already adopted",
-            });
+          res.status(404).send({
+            success: false,
+            message: "Pet not found or already adopted",
+          });
         }
       } catch (error) {
         console.error("Error marking pet as adopted:", error.message);
         res
           .status(500)
           .send({ success: false, message: "Internal Server Error" });
+      }
+    });
+
+    // delele my pet 
+    // DELETE /pets/:id
+    app.delete("/pets/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await petsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 1) {
+          res.status(200).json({ message: "Pet deleted successfully" });
+        } else {
+          res.status(404).json({ message: "Pet not found" });
+        }
+      } catch (error) {
+        console.error("Error deleting pet:", error);
+        res.status(500).json({ message: "Server error" });
       }
     });
 
