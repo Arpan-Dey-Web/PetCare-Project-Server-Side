@@ -176,9 +176,12 @@ async function run() {
     });
     // ✅ POST: Create Donation Campaign
     app.post("/donation-campaigns", async (req, res) => {
+      console.log(req.body);
       try {
         const {
+          petName,
           image,
+          owner,
           maxDonation,
           lastDate,
           shortDescription,
@@ -197,7 +200,9 @@ async function run() {
         }
 
         const donationData = {
+          petName,
           image,
+          owner,
           maxDonation: parseFloat(maxDonation),
           lastDate,
           shortDescription,
@@ -215,6 +220,109 @@ async function run() {
       } catch (err) {
         console.error("Error saving campaign:", err);
         res.status(500).json({ message: "Internal Server Error" });
+      }
+    });
+
+    // ✅ GET: Load My Donation Campaigns
+    app.get("/donation-campaigns/:email", async (req, res) => {
+      try {
+        const { email } = req.params;
+
+        if (!email) {
+          return res
+            .status(400)
+            .json({ error: "Email parameter is required." });
+        }
+
+        const campaigns = await donationCampaigns
+          .find({ owner: email })
+          .sort({ createdAt: -1 }) // newest campaigns first
+          .toArray();
+
+        res.json(campaigns);
+      } catch (error) {
+        console.error("Error fetching donation campaigns:", error);
+        res.status(500).json({ error: "Internal server error." });
+      }
+    });
+
+    // PATCH /donation-campaigns/:id/toggle-pause
+    app.patch("/donation-campaigns/:id/toggle-pause", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const campaign = await donationCampaigns.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!campaign) {
+          return res
+            .status(404)
+            .json({ success: false, error: "Campaign not found" });
+        }
+
+        await donationCampaigns.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { isPaused: !campaign.isPaused } }
+        );
+
+        res.json({ success: true });
+      } catch (error) {
+        res.status(500).json({ success: false, error: "Server error" });
+      }
+    });
+    // GET /donation-campaigns/:id
+    // app.get("/donation-campaigns/:id", async (req, res) => {
+    //   try {
+    //     const { id } = req.params;
+
+    //     const campaign = await donationCampaigns.findOne({
+    //       _id: new ObjectId(id),
+    //     });
+
+    //     if (!campaign) {
+    //       return res
+    //         .status(404)
+    //         .json({ success: false, error: "Campaign not found" });
+    //     }
+
+    //     res.json({ success: true, data: campaign });
+    //   } catch (error) {
+    //     res.status(500).json({ success: false, error: "Server error" });
+    //   }
+    // });
+
+    // ✅ Get campaign by ID
+    app.get("/editdonation-campaign/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        console.log(id);
+
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid campaign ID format",
+          });
+        }
+
+        const result = await donationCampaigns.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!result) {
+          return res.status(404).json({
+            success: false,
+            message: "Campaign not found",
+          });
+        }
+
+        res.json(result); // direct data
+      } catch (error) {
+        console.log("❌ Backend error:", error);
+        res.status(500).json({
+          success: false,
+          message: "Server error",
+          error: error.message,
+        });
       }
     });
 
