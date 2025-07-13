@@ -34,6 +34,7 @@ async function run() {
     const usersCollection = database.collection("users");
     const adoptRequestPetsCollection =
       database.collection("adopt-request-pets");
+    const donationCampaigns = database.collection("donationCampaigns");
 
     // user details saved in database
     app.post("/register", async (req, res) => {
@@ -105,6 +106,7 @@ async function run() {
 
     // mark pet as adopt api
     // PATCH /pets/adopt/:id
+
     app.patch("/pets/adopt/:id", async (req, res) => {
       const petId = req.params.id;
 
@@ -130,7 +132,7 @@ async function run() {
       }
     });
 
-    // delele my pet 
+    // delele my pet
     // DELETE /pets/:id
     app.delete("/pets/:id", async (req, res) => {
       try {
@@ -147,6 +149,72 @@ async function run() {
       } catch (error) {
         console.error("Error deleting pet:", error);
         res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    // Update pet by ID
+    app.patch("/pets/:id", async (req, res) => {
+      const id = req.params.id;
+      const updateData = req.body;
+
+      try {
+        const result = await petsCollection.findOneAndUpdate(
+          { _id: new ObjectId(id) }, // Find the pet by ID
+          { $set: { ...updateData, updatedAt: new Date() } }, // Update fields + timestamp
+          { returnDocument: "after" } // Return the updated pet after change
+        );
+
+        if (!result.value) {
+          return res.status(404).json({ message: "Pet not found" });
+        }
+
+        res.json(result.value); // Send back the updated pet
+      } catch (error) {
+        console.error("Failed to update pet:", error);
+        res.status(500).json({ message: "Server error updating pet" });
+      }
+    });
+    // ✅ POST: Create Donation Campaign
+    app.post("/donation-campaigns", async (req, res) => {
+      try {
+        const {
+          image,
+          maxDonation,
+          lastDate,
+          shortDescription,
+          longDescription,
+          createdAt,
+        } = req.body;
+
+        if (
+          !image ||
+          !maxDonation ||
+          !lastDate ||
+          !shortDescription ||
+          !longDescription
+        ) {
+          return res.status(400).json({ message: "Missing required fields" });
+        }
+
+        const donationData = {
+          image,
+          maxDonation: parseFloat(maxDonation),
+          lastDate,
+          shortDescription,
+          longDescription,
+          createdAt,
+          donatedAmount: 0,
+          isPaused: false,
+        };
+
+        const result = await donationCampaigns.insertOne(donationData);
+        res.status(201).json({
+          message: "Donation campaign created successfully",
+          insertedId: result.insertedId,
+        });
+      } catch (err) {
+        console.error("Error saving campaign:", err);
+        res.status(500).json({ message: "Internal Server Error" });
       }
     });
 
