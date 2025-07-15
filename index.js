@@ -1,18 +1,17 @@
 require("dotenv").config();
 const express = require("express");
+const Stripe = require("stripe");
 const app = express();
 const port = process.env.PORT || 3000;
 const cors = require("cors");
 const cookieParser = require("cookie-parser");
 const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 // middle wars
 app.use(cors());
 app.use(express.json());
 app.use(cookieParser());
-
-// arponthelearner
-// SGrRatHiR6OLr9hX
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASSWORD}@cluster3.6yot5jq.mongodb.net/?retryWrites=true&w=majority&appName=Cluster3`;
 
@@ -32,9 +31,49 @@ async function run() {
     // database collections
     const petsCollection = database.collection("pets");
     const usersCollection = database.collection("users");
+    const donationCampaigns = database.collection("donationCampaigns");
+    const donations = database.collection("donations");
     const adoptRequestPetsCollection =
       database.collection("adopt-request-pets");
-    const donationCampaigns = database.collection("donationCampaigns");
+
+    // stripe payment method intent
+    app.post("/create-payment-intent", async (req, res) => {
+      const { amount } = req.body;
+
+      try {
+        const paymentIntent = await stripe.paymentIntents.create({
+          amount: amount * 100, // Convert to cents
+          currency: "usd",
+          payment_method_types: ["card"],
+        });
+
+        res.send({
+          clientSecret: paymentIntent.client_secret,
+        });
+      } catch (err) {
+        res.status(500).send({ error: err.message });
+      }
+    });
+
+    // save payment details to database
+    app.post("/donations", async (req, res) => {
+      try {
+        const donation = req.body;
+        // Add extra fields if needed
+        donation.createdAt = new Date();
+
+        const result = await donations.insertOne(donation);
+
+        res.status(201).json({
+          success: true,
+          message: "Donation saved",
+          insertedId: result.insertedId,
+        });
+      } catch (err) {
+        console.log("Error saving donation:", err);
+        res.status(500).json({ success: false, message: "Server Error" });
+      }
+    });
 
     // user details saved in database
     app.post("/register", async (req, res) => {
@@ -78,9 +117,21 @@ async function run() {
       const result = await adoptRequestPetsCollection.insertOne(petDetails);
       res.send(result);
     });
-    // get my added pet api
-    // GET /pets?email=user@example.com
 
+    // /get adopt request using email
+    app.get("/adoption-requests/:ownerEmail", async (req, res) => {
+      try {
+        const { ownerEmail } = req.params;
+        const result = await adoptRequestPetsCollection
+          .find({ owner: ownerEmail })
+          .toArray();
+        res.json(result);
+      } catch (error) {
+        res.status(500).json({ error: "Failed to fetch requests" });
+      }
+    });
+
+    // get my added pet api
     app.get("/pets/:email", async (req, res) => {
       try {
         const { email } = req.params;
@@ -105,8 +156,6 @@ async function run() {
     });
 
     // mark pet as adopt api
-    // PATCH /pets/adopt/:id
-
     app.patch("/pets/adopt/:id", async (req, res) => {
       const petId = req.params.id;
 
@@ -133,7 +182,6 @@ async function run() {
     });
 
     // delele my pet
-    // DELETE /pets/:id
     app.delete("/pets/:id", async (req, res) => {
       try {
         const id = req.params.id;
@@ -153,27 +201,36 @@ async function run() {
     });
 
     // Update pet by ID
-    app.patch("/pets/:id", async (req, res) => {
-      const id = req.params.id;
-      const updateData = req.body;
-
+    app.put("/pets/:id", async (req, res) => {
       try {
-        const result = await petsCollection.findOneAndUpdate(
-          { _id: new ObjectId(id) }, // Find the pet by ID
-          { $set: { ...updateData, updatedAt: new Date() } }, // Update fields + timestamp
-          { returnDocument: "after" } // Return the updated pet after change
+        const { id } = req.params;
+        console.log(id);
+        const filter = { _id: new ObjectId(id) };
+        const data = req.body;
+
+        const updatedDoc = {
+          $set: {
+            ...data,
+            updatedAt: new Date().toISOString(),
+          },
+        };
+
+        const options = { upsert: true };
+        const result = await petsCollection.updateOne(
+          filter,
+          updatedDoc,
+          options
         );
-
-        if (!result.value) {
-          return res.status(404).json({ message: "Pet not found" });
-        }
-
-        res.json(result.value); // Send back the updated pet
+        res.send(result);
       } catch (error) {
-        console.error("Failed to update pet:", error);
-        res.status(500).json({ message: "Server error updating pet" });
+        console.log("Error updating pet:", error);
+        res.status(500).json({
+          success: false,
+          message: "Internal server error",
+        });
       }
     });
+
     // ✅ POST: Create Donation Campaign
     app.post("/donation-campaigns", async (req, res) => {
       console.log(req.body);
@@ -270,6 +327,7 @@ async function run() {
         res.status(500).json({ success: false, error: "Server error" });
       }
     });
+
     // GET /donation-campaigns/:id
     // app.get("/donation-campaigns/:id", async (req, res) => {
     //   try {
@@ -317,11 +375,156 @@ async function run() {
 
         res.json(result); // direct data
       } catch (error) {
-        console.log("❌ Backend error:", error);
         res.status(500).json({
           success: false,
           message: "Server error",
           error: error.message,
+        });
+      }
+    });
+
+    app.put("/donation-campaigns/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const filter = { _id: new ObjectId(id) };
+        const data = req.body;
+
+        const updatedDoc = {
+          $set: {
+            petName: data.petName,
+            owner: data.owner,
+            image: data.image,
+            maxDonation: parseFloat(data.maxDonation),
+            lastDate: data.lastDate,
+            shortDescription: data.shortDescription,
+            longDescription: data.longDescription,
+            updatedAt: new Date().toISOString(),
+          },
+        };
+
+        const options = { upsert: true };
+        const result = await donationCampaigns.updateOne(
+          filter,
+          updatedDoc,
+          options
+        );
+        res.send(result);
+      } catch (error) {
+        console.log("Error updating donation campaign:", error);
+        res.status(500).json({
+          success: false,
+          message: "Internal server error",
+        });
+      }
+    });
+
+    // get all donation campaign
+    app.get("/donation-campaigns", async (req, res) => {
+      try {
+        // Extract query parameters with defaults
+        const page = parseInt(req.query.page) || 1;
+        const limit = parseInt(req.query.limit) || 9;
+        const sort = req.query.sort || "createdAt";
+        const order = req.query.order || "desc";
+
+        // Calculate skip value for pagination
+        const skip = (page - 1) * limit;
+        // Get total count for hasMore calculation
+        const totalCount = await donationCampaigns.countDocuments();
+        // Fetch campaigns with pagination and sorting
+        const campaigns = await donationCampaigns
+          .find({})
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .toArray();
+
+        // Calculate if there are more pages
+        const hasMore = skip + campaigns.length < totalCount;
+
+        // Send response
+        res.json({
+          success: true,
+          campaigns,
+          pagination: {
+            currentPage: page,
+            totalPages: Math.ceil(totalCount / limit),
+            totalCount,
+            hasMore,
+            limit,
+          },
+        });
+      } catch (error) {
+        console.error("Error fetching donation campaigns:", error);
+        res.status(500).json({
+          success: false,
+          message: "Failed to fetch donation campaigns",
+          error: error.message,
+        });
+      }
+    });
+    // get donation campaign by id
+    app.get("/donation-campaign-details/:id", async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        // Validate ObjectId format
+        if (!ObjectId.isValid(id)) {
+          return res.status(400).json({
+            success: false,
+            message: "Invalid campaign ID format",
+          });
+        }
+
+        // Find campaign by ID
+        const campaign = await donationCampaigns.findOne({
+          _id: new ObjectId(id),
+        });
+
+        if (!campaign) {
+          return res.status(404).json({
+            success: false,
+            message: "Donation campaign not found",
+          });
+        }
+
+        // Return campaign details
+        res.status(200).json({
+          success: true,
+          data: campaign,
+        });
+      } catch (error) {
+        res.status(500).json({
+          success: false,
+          message: "Internal server error",
+        });
+      }
+    });
+
+    // TODO
+    // update dontion-amount when a user paying
+    app.put("/update-donation-amount", async (req, res) => {
+      try {
+        const { campaignId, amount } = req.body;
+
+        const result = await Campaign.findByIdAndUpdate(
+          campaignId,
+          {
+            $inc: { donatedAmount: amount },
+          },
+          { new: true }
+        );
+
+        res.send({
+          success: true,
+          message: "Donation amount updated!",
+          updatedCampaign: result,
+        });
+      } catch (err) {
+        console.error("Error updating donation amount:", err);
+        res.status(500).json({
+          success: false,
+          message: "Failed to update donation amount.",
         });
       }
     });
