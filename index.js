@@ -36,6 +36,104 @@ async function run() {
     const adoptRequestPetsCollection =
       database.collection("adopt-request-pets");
 
+    // get user role by email
+    app.get("/users/role/:email", async (req, res) => {
+      const email = req.params.email;
+      const user = await usersCollection.findOne({ email });
+      if (!user) return res.status(404).send({ role: "guest" });
+      res.send({ role: user.role }); // 'user' or 'admin'
+    });
+
+    // get all user
+    app.get("/users", async (req, res) => {
+      try {
+        const users = await usersCollection
+          .find()
+          .sort({
+            role: -1, // This will put "admin" before "user" alphabetically (descending)
+            name: 1, // Then sort by name ascending as secondary sort
+          })
+          .toArray();
+
+        if (!users || users.length === 0) {
+          return res.status(404).send({ error: "No users found" });
+        }
+
+        res.send(users);
+      } catch (error) {
+        res.status(500).send({ error: "Failed to fetch users" });
+      }
+    });
+
+    // make user admin
+    app.patch("/users/make-admin/:userId", async (req, res) => {
+      try {
+        const { userId } = req.params;
+
+        // Validate userId
+        if (!userId) {
+          return res.status(400).send({
+            success: false,
+            message: "User ID is required",
+          });
+        }
+
+        // Check if user exists
+        const user = await usersCollection.findOne({
+          _id: new ObjectId(userId),
+        });
+        if (!user) {
+          return res.status(404).send({
+            success: false,
+            message: "User not found",
+          });
+        }
+
+        // Check if user is already an admin
+        if (user.role === "admin") {
+          return res.status(400).send({
+            success: false,
+            message: "User is already an admin",
+          });
+        }
+
+        // Update user role to admin
+        const result = await usersCollection.updateOne(
+          { _id: new ObjectId(userId) },
+          {
+            $set: {
+              role: "admin",
+              updatedAt: new Date(),
+            },
+          }
+        );
+
+        if (result.modifiedCount === 0) {
+          return res.status(500).send({
+            success: false,
+            message: "Failed to update user role",
+          });
+        }
+
+        // Get updated user data
+        const updatedUser = await usersCollection.findOne({
+          _id: new ObjectId(userId),
+        });
+
+        res.status(200).send({
+          success: true,
+          message: "User promoted to admin successfully",
+          user: updatedUser,
+        });
+      } catch (error) {
+        console.error("Error making user admin:", error);
+        res.status(500).send({
+          success: false,
+          message: "Internal server error",
+        });
+      }
+    });
+
     // stripe payment method intent
     app.post("/create-payment-intent", async (req, res) => {
       const { amount } = req.body;
@@ -204,7 +302,6 @@ async function run() {
     app.put("/pets/:id", async (req, res) => {
       try {
         const { id } = req.params;
-        console.log(id);
         const filter = { _id: new ObjectId(id) };
         const data = req.body;
 
@@ -243,15 +340,20 @@ async function run() {
           lastDate,
           shortDescription,
           longDescription,
+          ownerName,
           createdAt,
         } = req.body;
 
         if (
+          !petName ||
           !image ||
+          !owner ||
           !maxDonation ||
           !lastDate ||
           !shortDescription ||
-          !longDescription
+          !longDescription ||
+          !ownerName ||
+          !createdAt
         ) {
           return res.status(400).json({ message: "Missing required fields" });
         }
@@ -265,6 +367,7 @@ async function run() {
           shortDescription,
           longDescription,
           createdAt,
+          ownerName,
           donatedAmount: 0,
           isPaused: false,
         };
@@ -501,7 +604,26 @@ async function run() {
       }
     });
 
-    // TODO
+    // delele my donation campaign 
+    app.delete("/delete-donation-campaign/:id", async (req, res) => {
+      try {
+        const id = req.params.id;
+        const result = await donationCampaigns.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        if (result.deletedCount === 1) {
+          res.status(200).json({ message: "Pet deleted successfully" });
+        } else {
+          res.status(404).json({ message: "Pet not found" });
+        }
+      } catch (error) {
+        console.error("Error deleting pet:", error);
+        res.status(500).json({ message: "Server error" });
+      }
+    });
+
+    // TODO----------------------------------------------------------=>
     // update dontion-amount when a user paying
     app.put("/update-donation-amount", async (req, res) => {
       try {
