@@ -27,7 +27,6 @@ async function run() {
   try {
     await client.connect();
     const database = client.db("pet-adoption");
-
     // database collections
     const petsCollection = database.collection("pets");
     const usersCollection = database.collection("users");
@@ -604,7 +603,7 @@ async function run() {
       }
     });
 
-    // delele my donation campaign 
+    // delele my donation campaign
     app.delete("/delete-donation-campaign/:id", async (req, res) => {
       try {
         const id = req.params.id;
@@ -649,6 +648,64 @@ async function run() {
           message: "Failed to update donation amount.",
         });
       }
+    });
+
+
+    // accept adopt request api
+    app.put("/adoption-requests/:id/accept", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const data = req.body;
+        const filter = { _id: new ObjectId(id) };
+        const result = await adoptRequestPetsCollection.findOne(filter);
+        
+        const query = { _id: new ObjectId(result.petId) };
+        const options = { upsert: true };
+        const updatedStatus = {
+          $set: {
+            status: "unavailable",
+            adopted: true,
+          },
+        };
+        const petsresult = await petsCollection.updateOne(
+          query,
+          updatedStatus,
+          options
+        );
+        const updatedDoc = {
+          $set: {
+            status: data.status,
+          },
+        };
+
+        const response = await adoptRequestPetsCollection.updateOne(
+          filter,
+          updatedDoc,
+          options
+        );
+
+        res.send(result);
+      } catch (error) {
+        console.log("Error updating donation campaign:", error);
+        res.status(500).json({
+          success: false,
+          message: "Internal server error",
+        });
+      }
+
+      // console.log(response);
+
+      //  const options = { upsert: true };
+      //  const finalresult = await donationCampaigns.updateOne(
+      //    filter,
+      //    updatedDoc,
+      //    options
+      // );
+      // console.log(finalresult);
+
+      // const data = req.body;
+      // console.log("api hitted ", id);
+      // console.log(data);
     });
 
     // await client.db("admin").command({ ping: 1 });
