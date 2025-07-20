@@ -22,7 +22,12 @@ const client = new MongoClient(uri, {
 // middle wars
 app.use(
   cors({
-    origin: ["http://localhost:5173"],
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:4173",
+      "https://bejewelled-travesseiro-e41014.netlify.app",
+      "https://pawhome.netlify.app",
+    ],
     credentials: true, // Required for cookies
   })
 );
@@ -47,14 +52,14 @@ const verifyJWT = (req, res, next) => {
 // for admin verify jwt
 const verifyAdmin = (req, res, next) => {
   if (req.user?.role !== "admin") {
-    return res.status(403).json({ message: "Forbidden – Admins only" });
+    return res.status(403).json({ message: "Forbidden  Admins only" });
   }
   next();
 };
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
     const database = client.db("pet-adoption");
     // database collections
     const petsCollection = database.collection("pets");
@@ -65,7 +70,6 @@ async function run() {
       database.collection("adopt-request-pets");
 
     // crete a token
-
     app.post("/jwt", async (req, res) => {
       const { email } = req.body;
       // console.log(req.body);
@@ -75,7 +79,8 @@ async function run() {
       const token = jwt.sign({ email }, jwtSecret, { expiresIn: "5h" });
       res.cookie("cookieToken", token, {
         httpOnly: true,
-        secure: false,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: process.env.NODE_ENV === "production" ? "none" : "strict",
       });
 
       res.send({ success: true });
@@ -115,19 +120,8 @@ async function run() {
     });
 
     // get user role by email  ✅verfijwt
-    app.get("/users/role/:email", verifyJWT, async (req, res) => {
+    app.get("/users/role/:email", async (req, res) => {
       const email = req.params.email;
-      if (!req.decoded) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
-      if (!email) {
-        return res
-          .status(400)
-          .json({ error: "Email query parameter is required." });
-      }
-      if (email !== req.decoded.email) {
-        return res.status(403).json({ message: "Forbidden" });
-      }
       const user = await usersCollection.findOne({ email });
       if (!user) return res.status(404).send({ role: "guest" });
       res.send({ role: user.role }); // 'user' or 'admin'
@@ -516,14 +510,12 @@ async function run() {
         const { id } = req.params;
         const filter = { _id: new ObjectId(id) };
         const data = req.body;
-
         const updatedDoc = {
           $set: {
             ...data,
             updatedAt: new Date().toISOString(),
           },
         };
-
         const options = { upsert: true };
         const result = await petsCollection.updateOne(
           filter,
@@ -565,6 +557,163 @@ async function run() {
           updatedDoc,
           options
         );
+        res.send(result);
+      } catch (error) {
+        console.log("Error updating donation campaign:", error);
+        res.status(500).json({
+          success: false,
+          message: "Internal server error",
+        });
+      }
+    });
+
+    // update dontion-amount when a user paying
+    app.put("/update-donation-amount", async (req, res) => {
+      const { campaignId, amount } = req.body;
+
+      // Validate input
+      if (!campaignId || !amount || isNaN(amount)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid campaign ID or amount",
+        });
+      }
+
+      try {
+        const filter = { _id: new ObjectId(campaignId) };
+
+        // 1. First verify the campaign exists
+        const campaign = await donationCampaigns.findOne(filter);
+        if (!campaign) {
+          return res.status(404).json({
+            success: false,
+            message: "Campaign not found",
+          });
+        }
+
+        // 2. Update using updateOne
+        const updateResult = await donationCampaigns.updateOne(filter, {
+          $inc: { donatedAmount: parseFloat(amount) },
+        });
+
+        // 3. Verify the update was successful
+        if (updateResult.modifiedCount === 0) {
+          return res.status(400).json({
+            success: false,
+            message: "Failed to update donation amount",
+          });
+        }
+
+        // 4. Get the updated campaign
+        const updatedCampaign = await donationCampaigns.findOne(filter);
+
+        res.json({
+          success: true,
+          message: "Donation amount updated!",
+          updatedCampaign,
+        });
+      } catch (err) {
+        console.error("Error updating donation amount:", err);
+        res.status(500).json({
+          success: false,
+          message: "Internal server error",
+          error: err.message,
+        });
+      }
+    });
+
+    // remove donation amount from campaign
+    app.put("/update-campaign-amount", async (req, res) => {
+      const { transactionId, transectionAmount } = req.body;
+
+      // Validate inputs
+      if (!transactionId || !transectionAmount || isNaN(transectionAmount)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid transaction ID or amount",
+        });
+      }
+
+      try {
+        // First verify the campaign exists
+        const campaignExists = await donationCampaigns.findOne({
+          _id: new ObjectId(transactionId),
+        });
+
+        if (!campaignExists) {
+          return res.status(404).json({
+            success: false,
+            message: "Campaign not found",
+          });
+        }
+
+        // Update using $inc with negative value to decrement
+        const updateResult = await donationCampaigns.updateOne(
+          { _id: new ObjectId(transactionId) },
+          { $inc: { donatedAmount: -parseFloat(transectionAmount) } }
+        );
+
+        // Check if update was successful
+        if (updateResult.modifiedCount === 0) {
+          return res.status(400).json({
+            success: false,
+            message: "No changes made to campaign amount",
+          });
+        }
+
+        // Get the updated campaign
+        const updatedCampaign = await donationCampaigns.findOne({
+          _id: new ObjectId(transactionId),
+        });
+
+        res.json({
+          success: true,
+          message: "Campaign amount updated successfully",
+          updatedCampaign,
+        });
+      } catch (err) {
+        console.error("Error updating campaign amount:", err);
+        res.status(500).json({
+          success: false,
+          message: "Internal server error",
+          error: err.message,
+        });
+      }
+    });
+
+    // accept adopt request api
+    app.put("/adoption-requests/:id/accept", async (req, res) => {
+      try {
+        const { id } = req.params;
+        const data = req.body;
+        const filter = { _id: new ObjectId(id) };
+        const result = await adoptRequestPetsCollection.findOne(filter);
+
+        const query = { _id: new ObjectId(result.petId) };
+        const options = { upsert: true };
+        const updatedStatus = {
+          $set: {
+            status: "unavailable",
+            adopted: true,
+          },
+        };
+        const petsresult = await petsCollection.updateOne(
+          query,
+          updatedStatus,
+          options
+        );
+        const updatedDoc = {
+          $set: {
+            status: data.status,
+          },
+        };
+
+        const response = await adoptRequestPetsCollection.updateOne(
+          filter,
+          updatedDoc,
+          options
+        );
+
         res.send(result);
       } catch (error) {
         console.log("Error updating donation campaign:", error);
@@ -713,6 +862,17 @@ async function run() {
       }
     });
 
+    app.delete("/delete-my-donation/:id", async (req, res) => {
+      const id = req.params.id;
+      const result = await donations.deleteOne({ _id: new ObjectId(id) });
+
+      if (result.deletedCount === 1) {
+        res.status(200).json({ message: "Pet deleted successfully" });
+      } else {
+        res.status(404).json({ message: "Pet not found" });
+      }
+    });
+
     // delele my pet
     app.delete("/pets/:id", async (req, res) => {
       try {
@@ -730,91 +890,6 @@ async function run() {
         console.error("Error deleting pet:", error);
         res.status(500).json({ message: "Server error" });
       }
-    });
-
-    // TODO----------------------------------------------------------=>
-    // update dontion-amount when a user paying
-    app.put("/update-donation-amount", async (req, res) => {
-      try {
-        const { campaignId, amount } = req.body;
-
-        const result = await Campaign.findByIdAndUpdate(
-          campaignId,
-          {
-            $inc: { donatedAmount: amount },
-          },
-          { new: true }
-        );
-
-        res.send({
-          success: true,
-          message: "Donation amount updated!",
-          updatedCampaign: result,
-        });
-      } catch (err) {
-        console.error("Error updating donation amount:", err);
-        res.status(500).json({
-          success: false,
-          message: "Failed to update donation amount.",
-        });
-      }
-    });
-
-    // accept adopt request api
-    app.put("/adoption-requests/:id/accept", async (req, res) => {
-      try {
-        const { id } = req.params;
-        const data = req.body;
-        const filter = { _id: new ObjectId(id) };
-        const result = await adoptRequestPetsCollection.findOne(filter);
-
-        const query = { _id: new ObjectId(result.petId) };
-        const options = { upsert: true };
-        const updatedStatus = {
-          $set: {
-            status: "unavailable",
-            adopted: true,
-          },
-        };
-        const petsresult = await petsCollection.updateOne(
-          query,
-          updatedStatus,
-          options
-        );
-        const updatedDoc = {
-          $set: {
-            status: data.status,
-          },
-        };
-
-        const response = await adoptRequestPetsCollection.updateOne(
-          filter,
-          updatedDoc,
-          options
-        );
-
-        res.send(result);
-      } catch (error) {
-        console.log("Error updating donation campaign:", error);
-        res.status(500).json({
-          success: false,
-          message: "Internal server error",
-        });
-      }
-
-      // console.log(response);
-
-      //  const options = { upsert: true };
-      //  const finalresult = await donationCampaigns.updateOne(
-      //    filter,
-      //    updatedDoc,
-      //    options
-      // );
-      // console.log(finalresult);
-
-      // const data = req.body;
-      // console.log("api hitted ", id);
-      // console.log(data);
     });
 
     // await client.db("admin").command({ ping: 1 });
