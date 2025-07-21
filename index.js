@@ -72,7 +72,6 @@ async function run() {
     // crete a token
     app.post("/jwt", async (req, res) => {
       const { email } = req.body;
-      // console.log(req.body);
       if (!email) {
         return res.status(400).send("Email is required");
       }
@@ -87,26 +86,51 @@ async function run() {
     });
 
     // get my added pet api   ✅jwt
-    app.get("/pets/:email", verifyJWT, async (req, res) => {
-      const { email } = req.params;
-      if (req.decoded.email !== email) {
-        return res.status(403).json({ message: "Unauthorized " });
-      }
+    // Backend endpoint implementation using MongoDB native driver
+    app.get("/pets/:email", async (req, res) => {
       try {
-        if (!email) {
-          return res
-            .status(400)
-            .json({ error: "Email query parameter is required." });
-        }
+        const { email } = req.params;
+        const page = parseInt(req.query.page) || 1;
+        const size = parseInt(req.query.size) || 10;
 
+      
+
+        // Calculate skip value for pagination
+        const skip = (page - 1) * size;
+
+        // Define the query filter (adjust field name based on your schema)
+        const query = { owner: email }; // or { email: email } depending on your field name
+  
+        // Get total count for pagination info
+        const totalCount = await petsCollection.countDocuments(query);
+
+        // Get paginated results
         const pets = await petsCollection
-          .find({ owner: email }) // your stored user email field
-          .sort({ createdAt: -1 }) // newest pets first
+          .find(query)
+          .skip(skip)
+          .limit(size)
+          .sort({ createdAt: -1 }) // Sort by newest first
           .toArray();
 
-        res.json(pets);
+        // Calculate pagination metadata
+        const totalPages = Math.ceil(totalCount / size);
+        const hasNextPage = page < totalPages;
+        const hasPrevPage = page > 1;
+
+        res.json({
+          pets,
+          pagination: {
+            currentPage: page,
+            totalPages,
+            totalCount,
+            pageSize: size,
+            hasNextPage,
+            hasPrevPage,
+          },
+        });
       } catch (error) {
-        res.status(500).json({ error: "Internal server error." });
+        console.error("Error fetching pets:", error);
+        res.status(500).json({ message: "Failed to fetch pets" });
       }
     });
 
@@ -237,7 +261,7 @@ async function run() {
     app.get("/editdonation-campaign/:id", async (req, res) => {
       try {
         const id = req.params.id;
-        console.log(id);
+     
 
         if (!ObjectId.isValid(id)) {
           return res.status(400).json({
@@ -419,7 +443,7 @@ async function run() {
           insertedId: result.insertedId,
         });
       } catch (err) {
-        console.log("Error saving donation:", err);
+      
         res.status(500).json({ success: false, message: "Server Error" });
       }
     });
@@ -451,7 +475,7 @@ async function run() {
     });
     // ✅ POST: Create Donation Campaign
     app.post("/donation-campaigns", async (req, res) => {
-      console.log(req.body);
+   
       try {
         const {
           petName,
@@ -524,7 +548,7 @@ async function run() {
         );
         res.send(result);
       } catch (error) {
-        console.log("Error updating pet:", error);
+      
         res.status(500).json({
           success: false,
           message: "Internal server error",
@@ -559,7 +583,7 @@ async function run() {
         );
         res.send(result);
       } catch (error) {
-        console.log("Error updating donation campaign:", error);
+
         res.status(500).json({
           success: false,
           message: "Internal server error",
@@ -716,7 +740,7 @@ async function run() {
 
         res.send(result);
       } catch (error) {
-        console.log("Error updating donation campaign:", error);
+   
         res.status(500).json({
           success: false,
           message: "Internal server error",
@@ -893,7 +917,7 @@ async function run() {
     });
 
     // await client.db("admin").command({ ping: 1 });
-    // console.log(
+ 
     //   "Pinged your deployment. You successfully connected to MongoDB!"
     // );
   } finally {
