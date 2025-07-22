@@ -46,14 +46,7 @@ const verifyJWT = (req, res, next) => {
     }
     req.decoded = decoded;
   });
-  // req.user = decoded;
-  next();
-};
-// for admin verify jwt
-const verifyAdmin = (req, res, next) => {
-  if (req.user?.role !== "admin") {
-    return res.status(403).json({ message: "Forbidden  Admins only" });
-  }
+
   next();
 };
 
@@ -93,14 +86,12 @@ async function run() {
         const page = parseInt(req.query.page) || 1;
         const size = parseInt(req.query.size) || 10;
 
-      
-
         // Calculate skip value for pagination
         const skip = (page - 1) * size;
 
         // Define the query filter (adjust field name based on your schema)
         const query = { owner: email }; // or { email: email } depending on your field name
-  
+
         // Get total count for pagination info
         const totalCount = await petsCollection.countDocuments(query);
 
@@ -143,22 +134,29 @@ async function run() {
       res.send(pets);
     });
 
-    // get user role by email  ✅verfijwt
+    // get user role by email
     app.get("/users/role/:email", async (req, res) => {
       const email = req.params.email;
       const user = await usersCollection.findOne({ email });
       if (!user) return res.status(404).send({ role: "guest" });
-      res.send({ role: user.role }); // 'user' or 'admin'
+      res.send({ role: user.role });
     });
 
-    // get all user       ✅ here have to implement if Admin then he can acces api data
-    app.get("/users", async (req, res) => {
+    // get all user       ✅ verify admin or not
+    app.get("/users", verifyJWT, async (req, res) => {
+      // verify admin or not
+      const email = req.decoded.email;
+      const user = await usersCollection.findOne({ email });
+      if (user.role !== "admin") {
+        return res.status(403).send({ message: "Forbidden" });
+      }
+
       try {
         const users = await usersCollection
           .find()
           .sort({
-            role: -1, // This will put "admin" before "user" alphabetically (descending)
-            name: 1, // Then sort by name ascending as secondary sort
+            role: -1,
+            name: 1,
           })
           .toArray();
 
@@ -261,7 +259,6 @@ async function run() {
     app.get("/editdonation-campaign/:id", async (req, res) => {
       try {
         const id = req.params.id;
-     
 
         if (!ObjectId.isValid(id)) {
           return res.status(400).json({
@@ -328,7 +325,7 @@ async function run() {
           },
         });
       } catch (error) {
-        console.error("Error fetching donation campaigns:", error);
+        // console.error("Error fetching donation campaigns:", error);
         res.status(500).json({
           success: false,
           message: "Failed to fetch donation campaigns",
@@ -443,7 +440,6 @@ async function run() {
           insertedId: result.insertedId,
         });
       } catch (err) {
-      
         res.status(500).json({ success: false, message: "Server Error" });
       }
     });
@@ -475,7 +471,6 @@ async function run() {
     });
     // ✅ POST: Create Donation Campaign
     app.post("/donation-campaigns", async (req, res) => {
-   
       try {
         const {
           petName,
@@ -528,6 +523,15 @@ async function run() {
       }
     });
 
+    // destroy jwt when logout
+    app.post("/logout", (req, res) => {
+      res.clearCookie("cookieToken", {
+        httpOnly: true,
+        secure: true,
+        sameSite: "None",
+      });
+      res.status(200).json({ message: "Logout successful" });
+    });
     // Update pet by ID
     app.put("/pets/:id", async (req, res) => {
       try {
@@ -548,7 +552,6 @@ async function run() {
         );
         res.send(result);
       } catch (error) {
-      
         res.status(500).json({
           success: false,
           message: "Internal server error",
@@ -583,7 +586,6 @@ async function run() {
         );
         res.send(result);
       } catch (error) {
-
         res.status(500).json({
           success: false,
           message: "Internal server error",
@@ -740,7 +742,6 @@ async function run() {
 
         res.send(result);
       } catch (error) {
-   
         res.status(500).json({
           success: false,
           message: "Internal server error",
@@ -915,11 +916,6 @@ async function run() {
         res.status(500).json({ message: "Server error" });
       }
     });
-
-    // await client.db("admin").command({ ping: 1 });
- 
-    //   "Pinged your deployment. You successfully connected to MongoDB!"
-    // );
   } finally {
     // await client.close();
   }
