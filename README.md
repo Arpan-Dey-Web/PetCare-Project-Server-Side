@@ -37,7 +37,7 @@ PetAdopt is a dynamic and responsive web application built with the MERN stack t
 - **CORS**, **Cookie-Parser**
 - **JWT Token Handling**
 - **Dotenv** 
-- **Mongoose**
+
 
 ---
 
